@@ -12,24 +12,32 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 def call_gpt_to_extract(text, filename):
     prompt = f"""
-You are a helpful assistant that extracts invoice line items from raw text.
-Extract all individual line items into a table with columns: Item Description, Amount, and Source.
+You are an intelligent document parser. Your task is to extract line items from an invoice.
+Each line item typically includes a description and an amount. Carefully analyze the content,
+and if necessary, combine multiple lines or fields to create a meaningful description.
 
-Text:
+Please extract each line item in this invoice as a row in a CSV table with the following columns:
+- Item Description (summarize or combine as needed)
+- Amount (numbers only, regardless of currency symbol)
+- Source (set this value to the filename provided)
+
+If there are totals or subtotals, skip them. Focus only on individual billable line items.
+Respond only with valid CSV format — no extra commentary.
+
+Invoice Filename: {filename}
+Invoice Text:
 {text}
-
-Respond only in CSV format. The 'Source' column should be '{filename}'.
 """
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a document parser."},
+                {"role": "system", "content": "You are a document parser that extracts structured invoice line items."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.0
+            temperature=0.2
         )
-        csv_output = response.choices[0].message.content
+        csv_output = response.choices[0].message.content.strip()
         return pd.read_csv(io.StringIO(csv_output))
     except Exception as e:
         raise RuntimeError(f"OpenAI API failed: {e}")
@@ -52,7 +60,7 @@ def extract_text_from_excel(file):
 
 def main():
     st.title("AI-Powered Invoice Combiner")
-    st.write("Upload PDFs or Excel files. The app uses GPT-4 to extract invoice line items.")
+    st.write("Upload PDFs or Excel files. The app uses GPT-4 to intelligently extract invoice line items.")
 
     uploaded_files = st.file_uploader("Upload invoice files", accept_multiple_files=True, type=["pdf", "xlsx", "xls"])
 
