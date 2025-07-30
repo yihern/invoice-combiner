@@ -20,18 +20,19 @@ Text:
 
 Respond only in CSV format. The 'Source' column should be '{filename}'.
 """
-
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are a document parser."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.0
-    )
-
-    csv_output = response.choices[0].message.content
-    return pd.read_csv(io.StringIO(csv_output))
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a document parser."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0
+        )
+        csv_output = response.choices[0].message.content
+        return pd.read_csv(io.StringIO(csv_output))
+    except Exception as e:
+        raise RuntimeError(f"OpenAI API failed: {e}")
 
 def extract_text_from_pdf(file):
     with pdfplumber.open(file) as pdf:
@@ -73,18 +74,26 @@ def main():
                     continue
 
                 df = call_gpt_to_extract(text, filename)
+
+                # Ensure required columns exist
+                if not {"Item Description", "Amount (SGD)", "Source"}.issubset(df.columns):
+                    raise ValueError("Expected columns not found in GPT output.")
+
                 all_data.append(df)
             except Exception as e:
                 st.error(f"Failed to process {filename}: {e}")
 
         if all_data:
             combined_df = pd.concat(all_data, ignore_index=True)
-            total_row = pd.DataFrame({
-                "Item Description": ["TOTAL"],
-                "Amount (SGD)": [combined_df["Amount (SGD)"].sum()],
-                "Source": [""]
-            })
-            final_df = pd.concat([combined_df, total_row], ignore_index=True)
+            if "Amount (SGD)" in combined_df.columns:
+                total_row = pd.DataFrame({
+                    "Item Description": ["TOTAL"],
+                    "Amount (SGD)": [combined_df["Amount (SGD)"].sum()],
+                    "Source": [""]
+                })
+                final_df = pd.concat([combined_df, total_row], ignore_index=True)
+            else:
+                final_df = combined_df
 
             st.success("Invoices extracted and combined successfully!")
             st.dataframe(final_df)
