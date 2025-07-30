@@ -38,24 +38,30 @@ Invoice Text:
             temperature=0.2
         )
         csv_output = response.choices[0].message.content.strip()
-        df = pd.read_csv(io.StringIO(csv_output))
 
-        # Try to normalize column names
-        df.columns = [c.strip().lower() for c in df.columns]
-        column_map = {
-            'item': 'Item Description',
-            'item description': 'Item Description',
-            'description': 'Item Description',
-            'amount': 'Amount',
-            'value': 'Amount',
-            'source': 'Source'
-        }
-        df = df.rename(columns={c: column_map.get(c, c) for c in df.columns})
+        # Detect and use header row for safety
+        header_line = csv_output.splitlines()[0].lower()
+        if "description" in header_line and "amount" in header_line:
+            df = pd.read_csv(io.StringIO(csv_output))
+            df.columns = [c.strip().lower() for c in df.columns]
+            column_map = {
+                'item': 'Item Description',
+                'item description': 'Item Description',
+                'description': 'Item Description',
+                'amount': 'Amount',
+                'value': 'Amount',
+                'price': 'Amount',
+                'source': 'Source'
+            }
+            df = df.rename(columns={c: column_map.get(c, c) for c in df.columns})
 
-        if not {'Item Description', 'Amount', 'Source'}.issubset(df.columns):
-            raise ValueError("Expected columns not found in GPT output.\n\nRaw GPT Response:\n" + csv_output)
+            if not {'Item Description', 'Amount', 'Source'}.issubset(set(df.columns)):
+                raise ValueError("Parsed but incomplete. Raw GPT Output:\n" + csv_output)
 
-        return df[['Item Description', 'Amount', 'Source']]
+            return df[['Item Description', 'Amount', 'Source']]
+        else:
+            raise ValueError("Missing expected headers. Raw GPT Output:\n" + csv_output)
+
     except Exception as e:
         raise RuntimeError(f"OpenAI API failed or CSV parsing failed: {e}")
 
