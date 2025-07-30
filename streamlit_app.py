@@ -1,85 +1,89 @@
 import os
 import pandas as pd
 import streamlit as st
+import openai
 import pdfplumber
+import io
 import re
 
-def parse_excel_csv(file, filename):
-    try:
-        if filename.endswith(".csv"):
-            df = pd.read_csv(file)
-        else:
-            df = pd.read_excel(file)
-        # Try to identify item and amount columns heuristically
-        item_col = next((col for col in df.columns if 'desc' in col.lower() or 'item' in col.lower()), df.columns[0])
-        amount_col = next((col for col in df.columns if 'amount' in col.lower() or 'total' in col.lower()), None)
-        if amount_col is None:
-            return pd.DataFrame()
-        return pd.DataFrame({
-            "Item Description": df[item_col].astype(str),
-            "Amount (SGD)": pd.to_numeric(df[amount_col], errors='coerce'),
-            "Source": filename
-        }).dropna(subset=["Amount (SGD)"])
-    except:
-        return pd.DataFrame()
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 
-def parse_pdf(file, filename):
-    try:
-        with pdfplumber.open(file) as pdf:
-            text = "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
-        # Heuristic pattern to get rows with service and amount
-        matches = re.findall(r"(?i)(.+?)\s+(?:SGD\s*)?(\d+[.,]?\d*)\s*", text)
-        data = []
-        for desc, amount in matches:
-            amount = amount.replace(",", "")
-            try:
-                amount_val = float(amount)
-                data.append({
-                    "Item Description": desc.strip(),
-                    "Amount (SGD)": amount_val,
-                    "Source": filename
-                })
-            except:
-                continue
-        return pd.DataFrame(data)
-    except:
-        return pd.DataFrame()
+def call_gpt_to_extract(text, filename):
+    prompt = f"""
+You are a helpful assistant that extracts invoice line items from raw text.
+Extract all individual line items into a table with columns: Item Description, Amount (SGD), and Source.
 
+Text:
+"""
+    prompt += text + f"\n\nRespond only in CSV format. The 'Source' column should be '{filename}'."
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a document parser."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.0
+    )
+
+    csv_output = response.choices[0].message.content
+    return pd.read_csv(io.StringIO(csv_output))
+
+def extract_text_from_pdf(file):
+    with pdfplumber.open(file) as pdf:
+        return "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+
+def extract_text_from_excel(file):
+    dfs = pd.read_excel(file, sheet_name=None)
+    text_lines = []
+    for name, df in dfs.items():
+        text_lines.extend(df.astype(str).fillna("").apply(lambda x: ' '.join(x), axis=1).tolist())
+    return "\n".join(text_lines)
 
 def main():
-    st.title("Invoice Combiner & Extractor")
-    st.write("Upload multiple invoices (CSV, Excel, PDF) to combine line items into a unified summary.")
+    st.title("AI-Powered Invoice Combiner")
+    st.write("Upload PDFs or Excel files. The app uses GPT-4 to extract invoice line items.")
 
-    uploaded_files = st.file_uploader("Upload invoice files", accept_multiple_files=True, type=["csv", "xlsx", "xls", "pdf"])
+    uploaded_files = st.file_uploader("Upload invoice files", accept_multiple_files=True, type=["pdf", "xlsx", "xls"])
 
     if uploaded_files:
         all_data = []
+
         for uploaded_file in uploaded_files:
             filename = uploaded_file.name
-            if filename.endswith((".csv", ".xlsx", ".xls")):
-                df = parse_excel_csv(uploaded_file, filename)
-            elif filename.endswith(".pdf"):
-                df = parse_pdf(uploaded_file, filename)
-            else:
-                df = pd.DataFrame()
-            all_data.append(df)
+            st.info(f"Processing: {filename}")
 
-        combined_df = pd.concat(all_data, ignore_index=True)
+            try:
+                if filename.endswith(".pdf"):
+                    text = extract_text_from_pdf(uploaded_file)
+                else:
+                    text = extract_text_from_excel(uploaded_file)
 
-        if not combined_df.empty:
+                if len(text.strip()) < 30:
+                    st.warning(f"Skipping {filename} — too little content.")
+                    continue
+
+                df = call_gpt_to_extract(text, filename)
+                all_data.append(df)
+            except Exception as e:
+                st.error(f"Failed to process {filename}: {e}")
+
+        if all_data:
+            combined_df = pd.concat(all_data, ignore_index=True)
             total_row = pd.DataFrame({
                 "Item Description": ["TOTAL"],
                 "Amount (SGD)": [combined_df["Amount (SGD)"].sum()],
                 "Source": [""]
             })
             final_df = pd.concat([combined_df, total_row], ignore_index=True)
-            st.success("Invoices combined successfully!")
+
+            st.success("Invoices extracted and combined successfully!")
             st.dataframe(final_df)
 
             csv = final_df.to_csv(index=False).encode('utf-8')
             st.download_button("Download Combined CSV", csv, "combined_invoices.csv", "text/csv")
         else:
-            st.warning("No invoice data could be extracted from the uploaded files.")
+            st.warning("No data could be extracted.")
 
 if __name__ == "__main__":
     main()
