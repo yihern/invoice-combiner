@@ -70,7 +70,7 @@ def extract_text_from_excel(file):
 
 def main():
     st.title("AI-Powered Invoice Combiner")
-    st.write("Upload PDFs or Excel files. The app uses GPT-4 to intelligently extract invoice line items.")
+    st.write("Upload PDFs or Excel files.")
 
     uploaded_files = st.file_uploader("Upload invoice files", accept_multiple_files=True, type=["pdf", "xlsx", "xls"])
 
