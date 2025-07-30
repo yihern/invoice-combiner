@@ -6,7 +6,9 @@ import pdfplumber
 import io
 import re
 
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+# Ensure the new OpenAI client is used correctly (for openai>=1.0.0)
+from openai import OpenAI
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 def call_gpt_to_extract(text, filename):
     prompt = f"""
@@ -14,10 +16,12 @@ You are a helpful assistant that extracts invoice line items from raw text.
 Extract all individual line items into a table with columns: Item Description, Amount (SGD), and Source.
 
 Text:
-"""
-    prompt += text + f"\n\nRespond only in CSV format. The 'Source' column should be '{filename}'."
+{text}
 
-    response = openai.ChatCompletion.create(
+Respond only in CSV format. The 'Source' column should be '{filename}'.
+"""
+
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a document parser."},
@@ -34,7 +38,12 @@ def extract_text_from_pdf(file):
         return "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
 def extract_text_from_excel(file):
-    dfs = pd.read_excel(file, sheet_name=None)
+    try:
+        dfs = pd.read_excel(file, sheet_name=None, engine='openpyxl')
+    except Exception:
+        file.seek(0)
+        dfs = pd.read_excel(io.BytesIO(file.read()), sheet_name=None, engine='openpyxl')
+
     text_lines = []
     for name, df in dfs.items():
         text_lines.extend(df.astype(str).fillna("").apply(lambda x: ' '.join(x), axis=1).tolist())
