@@ -38,9 +38,26 @@ Invoice Text:
             temperature=0.2
         )
         csv_output = response.choices[0].message.content.strip()
-        return pd.read_csv(io.StringIO(csv_output))
+        df = pd.read_csv(io.StringIO(csv_output))
+
+        # Try to normalize column names
+        df.columns = [c.strip().lower() for c in df.columns]
+        column_map = {
+            'item': 'Item Description',
+            'item description': 'Item Description',
+            'description': 'Item Description',
+            'amount': 'Amount',
+            'value': 'Amount',
+            'source': 'Source'
+        }
+        df = df.rename(columns={c: column_map.get(c, c) for c in df.columns})
+
+        if not {'Item Description', 'Amount', 'Source'}.issubset(df.columns):
+            raise ValueError("Expected columns not found in GPT output.\n\nRaw GPT Response:\n" + csv_output)
+
+        return df[['Item Description', 'Amount', 'Source']]
     except Exception as e:
-        raise RuntimeError(f"OpenAI API failed: {e}")
+        raise RuntimeError(f"OpenAI API failed or CSV parsing failed: {e}")
 
 def extract_text_from_pdf(file):
     with pdfplumber.open(file) as pdf:
@@ -82,11 +99,6 @@ def main():
                     continue
 
                 df = call_gpt_to_extract(text, filename)
-
-                # Ensure required columns exist
-                if not {"Item Description", "Amount", "Source"}.issubset(df.columns):
-                    raise ValueError("Expected columns not found in GPT output.")
-
                 all_data.append(df)
             except Exception as e:
                 st.error(f"Failed to process {filename}: {e}")
