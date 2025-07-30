@@ -40,7 +40,9 @@ Invoice Text:
         csv_output = response.choices[0].message.content.strip()
 
         df = pd.read_csv(io.StringIO(csv_output))
-        df.columns = [c.strip().lower() for c in df.columns]
+        original_columns = df.columns.tolist()
+        normalized_columns = [c.strip().lower() for c in original_columns]
+
         column_map = {
             'item': 'Item Description',
             'item description': 'Item Description',
@@ -50,10 +52,11 @@ Invoice Text:
             'price': 'Amount',
             'source': 'Source'
         }
-        df = df.rename(columns={c: column_map.get(c, c) for c in df.columns})
 
-        required = {'Item Description', 'Amount', 'Source'}
-        if not required.issubset(set(df.columns)):
+        renamed_columns = [column_map.get(col, col) for col in normalized_columns]
+        df.columns = renamed_columns
+
+        if not {'Item Description', 'Amount', 'Source'}.issubset(set(df.columns)):
             raise ValueError("Parsed but missing required columns.\n\nRaw GPT Output:\n" + csv_output)
 
         return df[['Item Description', 'Amount', 'Source']]
