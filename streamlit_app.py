@@ -13,7 +13,7 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 def call_gpt_to_extract(text, filename):
     prompt = f"""
 You are a helpful assistant that extracts invoice line items from raw text.
-Extract all individual line items into a table with columns: Item Description, Amount (SGD), and Source.
+Extract all individual line items into a table with columns: Item Description, Amount, and Source.
 
 Text:
 {text}
@@ -76,7 +76,7 @@ def main():
                 df = call_gpt_to_extract(text, filename)
 
                 # Ensure required columns exist
-                if not {"Item Description", "Amount (SGD)", "Source"}.issubset(df.columns):
+                if not {"Item Description", "Amount", "Source"}.issubset(df.columns):
                     raise ValueError("Expected columns not found in GPT output.")
 
                 all_data.append(df)
@@ -85,10 +85,10 @@ def main():
 
         if all_data:
             combined_df = pd.concat(all_data, ignore_index=True)
-            if "Amount (SGD)" in combined_df.columns:
+            if "Amount" in combined_df.columns:
                 total_row = pd.DataFrame({
                     "Item Description": ["TOTAL"],
-                    "Amount (SGD)": [combined_df["Amount (SGD)"].sum()],
+                    "Amount": [combined_df["Amount"].sum()],
                     "Source": [""]
                 })
                 final_df = pd.concat([combined_df, total_row], ignore_index=True)
