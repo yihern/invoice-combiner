@@ -39,28 +39,24 @@ Invoice Text:
         )
         csv_output = response.choices[0].message.content.strip()
 
-        # Detect and use header row for safety
-        header_line = csv_output.splitlines()[0].lower()
-        if "description" in header_line and "amount" in header_line:
-            df = pd.read_csv(io.StringIO(csv_output))
-            df.columns = [c.strip().lower() for c in df.columns]
-            column_map = {
-                'item': 'Item Description',
-                'item description': 'Item Description',
-                'description': 'Item Description',
-                'amount': 'Amount',
-                'value': 'Amount',
-                'price': 'Amount',
-                'source': 'Source'
-            }
-            df = df.rename(columns={c: column_map.get(c, c) for c in df.columns})
+        df = pd.read_csv(io.StringIO(csv_output))
+        df.columns = [c.strip().lower() for c in df.columns]
+        column_map = {
+            'item': 'Item Description',
+            'item description': 'Item Description',
+            'description': 'Item Description',
+            'amount': 'Amount',
+            'value': 'Amount',
+            'price': 'Amount',
+            'source': 'Source'
+        }
+        df = df.rename(columns={c: column_map.get(c, c) for c in df.columns})
 
-            if not {'Item Description', 'Amount', 'Source'}.issubset(set(df.columns)):
-                raise ValueError("Parsed but incomplete. Raw GPT Output:\n" + csv_output)
+        required = {'Item Description', 'Amount', 'Source'}
+        if not required.issubset(set(df.columns)):
+            raise ValueError("Parsed but missing required columns.\n\nRaw GPT Output:\n" + csv_output)
 
-            return df[['Item Description', 'Amount', 'Source']]
-        else:
-            raise ValueError("Missing expected headers. Raw GPT Output:\n" + csv_output)
+        return df[['Item Description', 'Amount', 'Source']]
 
     except Exception as e:
         raise RuntimeError(f"OpenAI API failed or CSV parsing failed: {e}")
