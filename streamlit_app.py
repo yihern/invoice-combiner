@@ -39,27 +39,15 @@ Invoice Text:
         )
         csv_output = response.choices[0].message.content.strip()
 
+        # Clean up common formatting issues in GPT output
+        csv_output = csv_output.replace("\r", "")
+        csv_lines = [line.strip() for line in csv_output.split("\n") if line.strip()]
+        if len(csv_lines) > 0 and csv_lines[0].lower() != "item description,amount,source":
+            csv_lines[0] = "Item Description,Amount,Source"
+        csv_output = "\n".join(csv_lines)
+
         df = pd.read_csv(io.StringIO(csv_output))
-        original_columns = df.columns.tolist()
-        normalized_columns = [c.strip().lower() for c in original_columns]
-
-        column_map = {
-            'item': 'Item Description',
-            'item description': 'Item Description',
-            'description': 'Item Description',
-            'amount': 'Amount',
-            'value': 'Amount',
-            'price': 'Amount',
-            'source': 'Source'
-        }
-
-        renamed_columns = [column_map.get(col, col) for col in normalized_columns]
-        df.columns = renamed_columns
-
-        if not {'Item Description', 'Amount', 'Source'}.issubset(set(df.columns)):
-            raise ValueError("Parsed but missing required columns.\n\nRaw GPT Output:\n" + csv_output)
-
-        return df[['Item Description', 'Amount', 'Source']]
+        return df
 
     except Exception as e:
         raise RuntimeError(f"OpenAI API failed or CSV parsing failed: {e}")
@@ -110,14 +98,15 @@ def main():
 
         if all_data:
             combined_df = pd.concat(all_data, ignore_index=True)
-            if "Amount" in combined_df.columns:
+            try:
+                combined_df["Amount"] = pd.to_numeric(combined_df["Amount"], errors='coerce')
                 total_row = pd.DataFrame({
                     "Item Description": ["TOTAL"],
                     "Amount": [combined_df["Amount"].sum()],
                     "Source": [""]
                 })
                 final_df = pd.concat([combined_df, total_row], ignore_index=True)
-            else:
+            except Exception:
                 final_df = combined_df
 
             st.success("Invoices extracted and combined successfully!")
